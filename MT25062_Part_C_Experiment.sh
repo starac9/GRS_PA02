@@ -17,7 +17,8 @@
 # Usage: sudo bash MT25062_Part_C_Experiment.sh
 # Note:  Requires root privileges for network namespace management and perf.
 
-set -e  # Exit on error
+# NOTE: Removed 'set -e' because background server processes launched via
+# 'sudo ip netns exec' cause PID tracking issues that trigger false errors.
 
 # ========================= Configuration ==============================
 SERVER_IP="10.0.0.1"
@@ -117,11 +118,10 @@ run_experiment() {
 
     # Start server in ns_server namespace (background)
     sudo ip netns exec ns_server ./${server_bin} ${PORT} > /dev/null 2>&1 &
-    local server_pid=$!
     sleep ${WAIT_SERVER}
 
-    # Verify server is running
-    if ! kill -0 ${server_pid} 2>/dev/null; then
+    # Verify server is running inside the namespace
+    if ! sudo ip netns exec ns_server pgrep -f "${server_bin}" > /dev/null 2>&1; then
         log_error "Server failed to start for ${impl_name}"
         return 1
     fi
@@ -138,9 +138,9 @@ run_experiment() {
     # Wait briefly for output flush
     sleep 1
 
-    # Kill server
-    sudo kill -TERM ${server_pid} 2>/dev/null || true
-    wait ${server_pid} 2>/dev/null || true
+    # Kill server inside the namespace
+    sudo ip netns exec ns_server pkill -TERM -f "${server_bin}" 2>/dev/null || true
+    sleep 1
 
     # Parse perf output
     local cycles=$(grep "cycles" "${perf_file}" 2>/dev/null | head -1 | awk '{gsub(/,/,"",$1); print $1}')
